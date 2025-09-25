@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jogo da Cobrinha</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Press Start 2P', cursive;
+            touch-action: none; /* Desabilita zoom por toque */
+        }
+        .touch-controls button {
+            width: 60px;
+            height: 60px;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-lg mx-auto text-center">
+        <h1 class="text-4xl mb-4 text-green-400">Jogo da Cobrinha</h1>
+        <div class="flex justify-between items-center text-lg mb-4 px-2">
+            <span>PONTOS: <span id="score" class="text-yellow-400">0</span></span>
+            <span>RECORDE: <span id="highScore" class="text-yellow-400">0</span></span>
+        </div>
+        
+        <div class="relative bg-black border-4 border-green-500 shadow-lg" style="width: 100%; padding-bottom: 100%;">
+            <canvas id="gameCanvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+            
+            <!-- Tela de Início -->
+            <div id="startScreen" class="absolute inset-0 bg-black bg-opacity-80 flex flex-col items-center justify-center text-center p-4">
+                <h2 class="text-3xl text-yellow-400 mb-4">Bem-vindo!</h2>
+                <p class="mb-6">Use as SETAS ou os botões para mover.</p>
+                <button id="startButton" class="bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-3 px-6 rounded-lg text-xl transition-transform transform hover:scale-105">
+                    Iniciar Jogo
+                </button>
+            </div>
+
+            <!-- Tela de Game Over -->
+            <div id="gameOverScreen" class="hidden absolute inset-0 bg-black bg-opacity-80 flex flex-col items-center justify-center text-center p-4">
+                <h2 class="text-4xl text-red-500 mb-4">FIM DE JOGO</h2>
+                <p class="text-xl mb-2">Sua pontuação: <span id="finalScore" class="text-yellow-400">0</span></p>
+                <button id="restartButton" class="mt-4 bg-green-500 hover:bg-green-600 text-gray-900 font-bold py-3 px-6 rounded-lg text-xl transition-transform transform hover:scale-105">
+                    Jogar Novamente
+                </button>
+            </div>
+        </div>
+
+        <!-- Controles de Toque para Celular -->
+        <div class="touch-controls mt-6 grid grid-cols-3 gap-2 w-48 mx-auto md:hidden">
+            <div></div>
+            <button id="upBtn" class="bg-green-600 rounded-lg text-2xl flex items-center justify-center">▲</button>
+            <div></div>
+            <button id="leftBtn" class="bg-green-600 rounded-lg text-2xl flex items-center justify-center">◄</button>
+            <button id="downBtn" class="bg-green-600 rounded-lg text-2xl flex items-center justify-center">▼</button>
+            <button id="rightBtn" class="bg-green-600 rounded-lg text-2xl flex items-center justify-center">►</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const scoreDisplay = document.getElementById('score');
+        const finalScoreDisplay = document.getElementById('finalScore');
+        const highScoreDisplay = document.getElementById('highScore');
+        
+        const startScreen = document.getElementById('startScreen');
+        const gameOverScreen = document.getElementById('gameOverScreen');
+        const startButton = document.getElementById('startButton');
+        const restartButton = document.getElementById('restartButton');
+
+        // Controles de toque
+        const upBtn = document.getElementById('upBtn');
+        const downBtn = document.getElementById('downBtn');
+        const leftBtn = document.getElementById('leftBtn');
+        const rightBtn = document.getElementById('rightBtn');
+
+        const gridSize = 20;
+        let canvasSize;
+
+        let snake, food, score, highScore, dx, dy, changingDirection, gameLoopTimeout;
+        let gameActive = false;
+
+        function setCanvasSize() {
+            const parent = canvas.parentElement;
+            const size = Math.min(parent.clientWidth, parent.clientHeight);
+            canvas.width = size;
+            canvas.height = size;
+            canvasSize = Math.floor(size / gridSize) * gridSize; // Garante que o tamanho é múltiplo do grid
+        }
+
+        function initializeGame() {
+            // Posição inicial da cobra no centro
+            const startPos = Math.floor(canvasSize / gridSize / 2);
+            snake = [
+                { x: startPos * gridSize, y: startPos * gridSize },
+                { x: (startPos - 1) * gridSize, y: startPos * gridSize },
+                { x: (startPos - 2) * gridSize, y: startPos * gridSize }
+            ];
+            
+            // Direção inicial para a direita
+            dx = gridSize;
+            dy = 0;
+            
+            score = 0;
+            highScore = localStorage.getItem('snakeHighScore') || 0;
+            scoreDisplay.textContent = score;
+            highScoreDisplay.textContent = highScore;
+            
+            changingDirection = false;
+            gameActive = true;
+
+            generateFood();
+            
+            startScreen.classList.add('hidden');
+            gameOverScreen.classList.add('hidden');
+        }
+
+        // Função principal do jogo (game loop)
+        function gameLoop() {
+            if (!gameActive) return;
+
+            gameLoopTimeout = setTimeout(() => {
+                changingDirection = false;
+                clearCanvas();
+                drawFood();
+                moveSnake();
+                drawSnake();
+                
+                if (checkCollision()) {
+                    endGame();
+                    return;
+                }
+
+                gameLoop();
+            }, 120); // Velocidade do jogo
+        }
+
+        function clearCanvas() {
+            ctx.fillStyle = '#1a202c'; // Cor de fundo escura
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function drawSnakePart(part) {
+            ctx.fillStyle = '#48bb78'; // Verde
+            ctx.strokeStyle = '#2f855a'; // Verde escuro
+            ctx.fillRect(part.x, part.y, gridSize, gridSize);
+            ctx.strokeRect(part.x, part.y, gridSize, gridSize);
+        }
+
+        function drawSnake() {
+            snake.forEach(drawSnakePart);
+        }
+
+        function moveSnake() {
+            const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+            snake.unshift(head);
+
+            // Verifica se a cobra comeu a comida
+            const hasEatenFood = snake[0].x === food.x && snake[0].y === food.y;
+            if (hasEatenFood) {
+                score += 10;
+                scoreDisplay.textContent = score;
+                generateFood();
+            } else {
+                snake.pop();
+            }
+        }
+
+        function changeDirection(event) {
+            if (changingDirection) return;
+            changingDirection = true;
+
+            const keyPressed = event.key;
+            
+            const goingUp = dy === -gridSize;
+            const goingDown = dy === gridSize;
+            const goingRight = dx === gridSize;
+            const goingLeft = dx === -gridSize;
+
+            if (keyPressed === "ArrowLeft" && !goingRight) {
+                dx = -gridSize;
+                dy = 0;
+            }
+            if (keyPressed === "ArrowUp" && !goingDown) {
+                dx = 0;
+                dy = -gridSize;
+            }
+            if (keyPressed === "ArrowRight" && !goingLeft) {
+                dx = gridSize;
+                dy = 0;
+            }
+            if (keyPressed === "ArrowDown" && !goingUp) {
+                dx = 0;
+                dy = gridSize;
+            }
+        }
+        
+        function setupTouchControls() {
+            const goingUp = () => dy === -gridSize;
+            const goingDown = () => dy === gridSize;
+            const goingRight = () => dx === gridSize;
+            const goingLeft = () => dx === -gridSize;
+
+            upBtn.addEventListener('click', () => { if (!goingDown()) { dx=0; dy=-gridSize; }});
+            downBtn.addEventListener('click', () => { if (!goingUp()) { dx=0; dy=gridSize; }});
+            leftBtn.addEventListener('click', () => { if (!goingRight()) { dx=-gridSize; dy=0; }});
+            rightBtn.addEventListener('click', () => { if (!goingLeft()) { dx=gridSize; dy=0; }});
+        }
+
+
+        function randomPosition(min, max) {
+            return Math.round((Math.random() * (max - min) + min) / gridSize) * gridSize;
+        }
+
+        function generateFood() {
+            food = {
+                x: randomPosition(0, canvasSize - gridSize),
+                y: randomPosition(0, canvasSize - gridSize)
+            };
+            // Se a comida aparecer na cobra, gera de novo
+            snake.forEach(part => {
+                if (part.x === food.x && part.y === food.y) {
+                    generateFood();
+                }
+            });
+        }
+
+        function drawFood() {
+            ctx.fillStyle = '#f56565'; // Vermelho
+            ctx.strokeStyle = '#c53030'; // Vermelho escuro
+            ctx.fillRect(food.x, food.y, gridSize, gridSize);
+            ctx.strokeRect(food.x, food.y, gridSize, gridSize);
+        }
+
+        function checkCollision() {
+            // Colisão com o próprio corpo
+            for (let i = 4; i < snake.length; i++) {
+                if (snake[i].x === snake[0].x && snake[i].y === snake[0].y) return true;
+            }
+            // Colisão com as paredes
+            const hitLeftWall = snake[0].x < 0;
+            const hitRightWall = snake[0].x >= canvasSize;
+            const hitTopWall = snake[0].y < 0;
+            const hitBottomWall = snake[0].y >= canvasSize;
+            return hitLeftWall || hitRightWall || hitTopWall || hitBottomWall;
+        }
+
+        function startGame() {
+            if (gameActive) return;
+            initializeGame();
+            gameLoop();
+        }
+
+        function endGame() {
+            gameActive = false;
+            clearTimeout(gameLoopTimeout);
+            
+            finalScoreDisplay.textContent = score;
+            gameOverScreen.classList.remove('hidden');
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('snakeHighScore', highScore);
+                highScoreDisplay.textContent = highScore;
+            }
+        }
+
+        // Event Listeners
+        document.addEventListener("keydown", changeDirection);
+        startButton.addEventListener('click', startGame);
+        restartButton.addEventListener('click', startGame);
+
+        window.addEventListener('resize', () => {
+            if (!gameActive) {
+                setCanvasSize();
+            }
+        });
+        
+        // Inicialização
+        setCanvasSize();
+        setupTouchControls();
+        highScoreDisplay.textContent = localStorage.getItem('snakeHighScore') || 0;
+
+    </script>
+</body>
+</html>
